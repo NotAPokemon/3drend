@@ -1,0 +1,20 @@
+#!/bin/bash
+INCLUDE_DIRS=$(find . -type d -name include)
+
+INC_FLAGS=""
+for dir in $INCLUDE_DIRS; do
+    INC_FLAGS="$INC_FLAGS -I $dir"
+done
+
+clang -c include/glad/src/glad.c $INC_FLAGS -o libs/glad.o
+
+clang++ -std=c++17 src/main.cpp \
+    libs/glad.o \
+    $INC_FLAGS \
+    -L ./libs \
+    -lglfw3 \
+    -framework Cocoa \
+    -framework IOKit \
+    -framework CoreVideo \
+    -framework OpenGL \
+    -o exe
