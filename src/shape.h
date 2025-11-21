@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 class Shape;
+class CompoundShape;
 
 class World
 {
@@ -39,6 +40,17 @@ public:
     {
         return shapeNames[name];
     }
+    bool translateCallback(Shape *shape, const Vector3 &delta);
+
+    Vector2
+    getMousePos(GLFWwindow *window)
+    {
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+        return Vector2(static_cast<float>(xpos), static_cast<float>(ypos));
+    }
+
+    void drawAllShapes();
 
     static World &getInstance()
     {
@@ -68,7 +80,7 @@ public:
 
 class Shape
 {
-private:
+protected:
     std::vector<Vector3> vertices;
 
     unsigned int Vertex_Array_Object, Vertex_Buffer_Object;
@@ -177,8 +189,57 @@ public:
         initialized = false;
     }
 
+    void rectangle(float width, float height)
+    {
+        clearVertices();
+
+        Vector3 A(0, 0, 0);
+        Vector3 B(width, 0, 0);
+        Vector3 C(width, height, 0);
+        Vector3 D(0, height, 0);
+
+        addVertex(A);
+        addVertex(B);
+        addVertex(C);
+
+        addVertex(A);
+        addVertex(C);
+        addVertex(D);
+        initialized = false;
+    }
+
+    void regularPolygon(int sides, float radius)
+    {
+        clearVertices();
+        if (sides < 3)
+            return;
+
+        float angleStep = 2.0f * 3.14159265359f / sides;
+
+        Vector3 center(0, 0, 0);
+
+        for (int i = 0; i < sides; i++)
+        {
+            float angle1 = i * angleStep;
+            float angle2 = ((i + 1) % sides) * angleStep;
+
+            Vector3 vertex1(radius * cos(angle1), radius * sin(angle1), 0);
+            Vector3 vertex2(radius * cos(angle2), radius * sin(angle2), 0);
+
+            addVertex(center);
+            addVertex(vertex1);
+            addVertex(vertex2);
+        }
+        initialized = false;
+    }
+
     void translate(const Vector3 &p)
     {
+        World &world = World::getInstance();
+        if (!world.translateCallback(this, p))
+        {
+            return;
+        }
         for (auto &v : vertices)
         {
             v = v + p;
@@ -211,7 +272,27 @@ public:
         initialized = false;
     }
 
-    void draw()
+    std::vector<Vector3> getVertices() const
+    {
+        return vertices;
+    }
+
+    Vector4 getColor() const
+    {
+        return color;
+    }
+
+    GLFWwindow *getWindow() const
+    {
+        return window;
+    }
+
+    GLuint getShader() const
+    {
+        return shader;
+    }
+
+    virtual void draw()
     {
         if (!World::isBound(this))
         {
@@ -241,5 +322,125 @@ public:
         glDrawArrays(GL_TRIANGLES, 0, vertices.size()); // draw the vertexs in triangle mode
         glBindVertexArray(0);                           // clear VAO context
     }
+    CompoundShape *bind(Shape &other);
 };
+
+class CompoundShape : public Shape
+{
+private:
+    std::vector<int> shapeIndacies;
+    std::vector<Vector4> shapeColors;
+    CompoundShape(GLFWwindow *window, GLuint shader)
+        : Shape(window, shader)
+    {
+    }
+
+public:
+    static CompoundShape *bindShapes(const std::vector<Shape *> &shapes)
+    {
+        CompoundShape *compoundShape = new CompoundShape(shapes[0]->getWindow(), shapes[0]->getShader());
+        for (const auto &shape : shapes)
+        {
+            for (const auto &v : shape->getVertices())
+            {
+                compoundShape->addVertex(v);
+            }
+            compoundShape->shapeIndacies.push_back(shape->getVertices().size());
+            compoundShape->shapeColors.push_back(shape->getColor());
+        }
+        compoundShape->setColor(Vector4::one());
+        return compoundShape;
+    }
+
+    std::vector<int> *getShapeIndacies()
+    {
+        return &shapeIndacies;
+    }
+
+    std::vector<Vector4> *getShapeColors()
+    {
+        return &shapeColors;
+    }
+
+    void draw() override
+    {
+        if (!World::isBound(this))
+        {
+            return;
+        }
+        if (!initialized)
+        {
+            init();
+            initialized = true;
+        }
+
+        glBindVertexArray(Vertex_Array_Object);
+
+        World &world = World::getInstance();
+        Vector3 worldSize = world.getWorldSize();
+
+        Mat4 proj = Mat4::ortho(0.0f, worldSize.x, 0.0f, worldSize.y, -1.0f, 1.0f);
+        Mat4 view;
+        view.loadIdentity();
+
+        Mat4 MVP = proj * view * model;
+        GLuint mvpLoc = glGetUniformLocation(shader, "uMVP");
+        glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, MVP.m);
+
+        GLuint colorLoc = glGetUniformLocation(shader, "uColor");
+
+        int vertexOffset = 0; // starting index in the VBO
+
+        for (int i = 0; i < shapeIndacies.size(); i++)
+        {
+            const Vector4 &shapeColor = shapeColors[i];
+            int vertexCount = shapeIndacies[i];
+
+            glUniform4f(colorLoc,
+                        shapeColor.x,
+                        shapeColor.y,
+                        shapeColor.z,
+                        shapeColor.w);
+
+            glDrawArrays(GL_TRIANGLES, vertexOffset, vertexCount);
+
+            vertexOffset += vertexCount;
+        }
+
+        glBindVertexArray(0);
+    }
+};
+
+inline CompoundShape *Shape::bind(Shape &other)
+{
+    std::vector<Shape *> shapes = {this, &other};
+    CompoundShape *result = CompoundShape::bindShapes(shapes);
+    return result;
+}
+
+inline void World::drawAllShapes()
+{
+    for (auto shape : shapes)
+    {
+        shape->draw();
+    }
+}
+
+inline bool World::translateCallback(Shape *shape, const Vector3 &delta)
+{
+
+    for (const auto &v : shape->getVertices())
+    {
+        Vector3 newPos = v + delta;
+
+        if (newPos.x < 0 || newPos.x > worldSize.x ||
+            newPos.y < 0 || newPos.y > worldSize.y)
+        {
+            return false; // Block movement
+        }
+    }
+
+    return true; // Allow movement
+}
+
 #endif

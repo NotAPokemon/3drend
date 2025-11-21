@@ -57,6 +57,34 @@ GLuint init_shaders()
     return shaderProgram;
 }
 
+void init_scene(GLFWwindow *window, GLuint shaderProgram)
+{
+    World &world = World::getInstance();
+    Shape *square = new Shape(window, shaderProgram);
+    square->square(5);
+    square->setColor(Vector4(1.0f, 0.0f, 0.0f, 1.0f));
+    square->translate(Vector3(0.5f, 0.5f, 0.0f));
+    Shape *head = new Shape(window, shaderProgram);
+    head->triangle_of(5.0f, 5.0f, 5.0f);
+    head->translate(Vector3(0.5f, 5.5f, 0.0f));
+    Shape *boor_door = new Shape(window, shaderProgram);
+    boor_door->rectangle(2, 3);
+    boor_door->setColor(Vector4(0.5f, 0.25f, 0.0f, 1.0f));
+    boor_door->translate(Vector3(2.0f, 0.5f, 0.0f));
+    CompoundShape *character = CompoundShape::bindShapes({square, head, boor_door});
+    Shape *hexagon = new Shape(window, shaderProgram);
+    hexagon->setColor(Vector4(0.0f, 0.4f, 1.0f, 1.0f));
+    hexagon->regularPolygon(6, 3.0f);
+    hexagon->translate(Vector3(20.0f, 20.0f, 0.0f));
+
+    world.bindShape("hexagon", hexagon);
+    world.bindShape("player", character);
+
+    delete square;
+    delete head;
+    delete boor_door;
+}
+
 int main()
 {
     bool init_done = false;
@@ -96,18 +124,13 @@ int main()
 
     world.setWorldSize(Vector3(50, 50, 50));
 
-    Shape square(window, shaderProgram);
-    square.square(5);
-    square.setColor(Vector4(1.0f, 0.0f, 0.0f, 1.0f));
-    square.translate(Vector3(0.5f, 0.5f, 0.0f));
-    world.bindShape("player", &square);
+    init_scene(window, shaderProgram);
 
     while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(shaderProgram);
-        square.draw();
-
+        world.drawAllShapes();
         Shape *player = world.getShape("player");
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
             player->translate(Vector3(0.0f, 0.15f, 0.0f));
